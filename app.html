@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <title>SharePoint Bulk Downloader</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="page">
+
+  <header>
+    <div class="header-inner">
+      <h1>SharePoint Bulk Downloader</h1>
+      <span class="version">v2.0</span>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- ======================================================
+         Sidebar — configuração
+    ====================================================== -->
+    <aside class="sidebar">
+
+      <!-- Conexão com aba do SharePoint -->
+      <section class="card">
+        <h2>Aba do SharePoint</h2>
+
+        <div id="sp-tab-area">
+          <p class="hint">Selecione a aba do SharePoint com a pasta a ser baixada:</p>
+          <div id="sp-tab-list" class="sp-tab-list"></div>
+          <p id="sp-tab-none" class="warning hidden">
+            Nenhuma aba do SharePoint encontrada.<br>
+            Abra o SharePoint e clique em <strong>Atualizar</strong>.
+          </p>
+          <button id="btn-refresh-tabs" class="btn-outline btn-sm" style="margin-top:8px">Atualizar abas</button>
+        </div>
+
+        <div id="sp-connected" class="hidden">
+          <div class="info-row">
+            <span class="info-label">Pasta</span>
+            <span id="folder-path" class="info-value mono">—</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Site</span>
+            <span id="site-url" class="info-value mono small">—</span>
+          </div>
+          <button id="btn-change-tab" class="btn-outline btn-sm" style="margin-top:6px">Trocar aba</button>
+
+          <div id="manual-path-panel" class="manual-path hidden">
+            <label class="field-label">
+              Caminho manual
+              <span class="field-hint">(URL completa ou /sites/...)</span>
+            </label>
+            <div class="row-inline">
+              <input type="text" id="manual-folder-path" placeholder="/sites/Site/Docs/Pasta">
+              <button id="btn-manual-apply" class="btn-primary btn-sm">OK</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Pasta de destino -->
+      <section class="card">
+        <h2>Pasta de destino</h2>
+        <p class="hint">Arquivos gravados diretamente — sem diálogos por arquivo.</p>
+
+        <div id="dir-info" class="dir-info hidden">
+          <div class="dir-name" id="dir-name"></div>
+          <div class="hint">Subpasta: <span id="dir-subfolder" class="dir-sub">—</span></div>
+        </div>
+        <p id="no-dir-msg" class="warning" style="margin-bottom:8px">Nenhuma pasta selecionada.</p>
+
+        <button id="btn-pick-dir" class="btn-primary btn-sm">Escolher pasta...</button>
+      </section>
+
+      <!-- Opções -->
+      <section class="card">
+        <h2>Opções</h2>
+
+        <div class="form-group">
+          <label class="field-label" for="local-folder">Subpasta de organização:</label>
+          <input type="text" id="local-folder" placeholder="ex: SharePoint-Projeto">
+          <p class="hint">Criada automaticamente dentro da pasta de destino.</p>
+        </div>
+
+        <div class="checkbox-row">
+          <input type="checkbox" id="include-subfolders" checked>
+          <label for="include-subfolders">Incluir subpastas recursivamente</label>
+        </div>
+
+        <div class="checkbox-row">
+          <input type="checkbox" id="skip-existing" checked>
+          <label for="skip-existing">Pular arquivos já existentes</label>
+        </div>
+      </section>
+
+      <div class="action-area">
+        <button id="btn-scan" class="btn-primary btn-full" disabled>
+          <span id="scan-label">Listar Arquivos</span>
+          <span id="scan-spinner" class="spinner hidden"></span>
+        </button>
+      </div>
+
+    </aside>
+
+    <!-- ======================================================
+         Content — progresso, listas, log
+    ====================================================== -->
+    <div class="content">
+
+      <!-- Estado inicial -->
+      <div id="panel-empty" class="empty-state">
+        <div class="empty-icon">↓</div>
+        <p>Configure a conexão e a pasta de destino,<br>
+           depois clique em <strong>Listar Arquivos</strong>.</p>
+      </div>
+
+      <!-- ── Painel de progresso ── -->
+      <section id="panel-progress" class="card hidden">
+
+        <div class="progress-header">
+          <h2 id="progress-title">Aguardando...</h2>
+          <div class="progress-actions">
+            <button id="btn-pause"  class="btn-warning btn-sm hidden">Pausar</button>
+            <button id="btn-resume" class="btn-success btn-sm hidden">Continuar</button>
+            <button id="btn-cancel" class="btn-danger  btn-sm hidden">Cancelar</button>
+          </div>
+        </div>
+
+        <!-- Barra principal -->
+        <div class="progress-bar-wrap">
+          <div class="progress-bar">
+            <div class="progress-fill" id="progress-fill" style="width:0%"></div>
+          </div>
+          <span class="pct" id="pct-label">0%</span>
+        </div>
+
+        <!-- Chips de resumo -->
+        <div class="progress-chips">
+          <span id="stats-completed" class="chip chip-ok">0 ok</span>
+          <span id="stats-failed"    class="chip chip-fail hidden">0 falhas</span>
+          <span id="stats-remaining" class="chip">0 restantes</span>
+        </div>
+
+        <!-- Grade de estatísticas -->
+        <div class="stats-grid">
+          <div class="stat-cell">
+            <div class="stat-label">Velocidade</div>
+            <div class="stat-value highlight" id="stat-speed">—</div>
+          </div>
+          <div class="stat-cell">
+            <div class="stat-label">Tempo restante</div>
+            <div class="stat-value" id="stat-eta">—</div>
+          </div>
+          <div class="stat-cell">
+            <div class="stat-label">Decorrido</div>
+            <div class="stat-value" id="stat-elapsed">—</div>
+          </div>
+          <div class="stat-cell">
+            <div class="stat-label">Baixado</div>
+            <div class="stat-value" id="stat-downloaded">—</div>
+          </div>
+          <div class="stat-cell">
+            <div class="stat-label">Arquivos</div>
+            <div class="stat-value" id="stat-files">—</div>
+          </div>
+          <div class="stat-cell">
+            <div class="stat-label">Vel. média</div>
+            <div class="stat-value" id="stat-avg-speed">—</div>
+          </div>
+        </div>
+
+        <!-- Arquivo atual -->
+        <div class="current-file" id="current-file-label"></div>
+        <div id="file-progress-wrap" class="file-progress hidden">
+          <div class="progress-bar thin">
+            <div class="progress-fill blue" id="file-progress-fill" style="width:0%"></div>
+          </div>
+          <span id="file-pct-label" class="file-pct"></span>
+        </div>
+      </section>
+
+      <!-- ── Tabs: Fila / Concluídos / Log ── -->
+      <div id="panel-files" class="tabs-container hidden">
+
+        <div class="tabs-nav">
+          <button class="tab-nav-btn active" data-tab="queue">
+            Fila <span class="badge" id="badge-queue">0</span>
+          </button>
+          <button class="tab-nav-btn" data-tab="completed">
+            Concluídos <span class="badge badge-ok" id="badge-completed">0</span>
+          </button>
+          <button class="tab-nav-btn" data-tab="log">
+            Log <span class="badge" id="badge-log">0</span>
+          </button>
+        </div>
+
+        <!-- Aba: Fila -->
+        <div class="tab-pane" id="tab-queue">
+          <div class="tab-toolbar">
+            <div>
+              <strong id="file-count">0</strong> arquivo(s)
+              <span id="total-size" class="hint"></span>
+            </div>
+            <button id="btn-start" class="btn-success" disabled>Iniciar Downloads</button>
+          </div>
+          <div class="file-list" id="file-list"></div>
+        </div>
+
+        <!-- Aba: Concluídos -->
+        <div class="tab-pane hidden" id="tab-completed">
+          <div class="tab-toolbar">
+            <span id="completed-summary" class="hint"></span>
+            <button id="btn-retry-failed" class="btn-warning btn-sm hidden">Tentar novamente</button>
+          </div>
+          <div class="completed-list" id="completed-list"></div>
+        </div>
+
+        <!-- Aba: Log -->
+        <div class="tab-pane hidden" id="tab-log">
+          <div class="tab-toolbar">
+            <span id="log-count" class="hint">0 entradas</span>
+            <div style="display:flex;gap:6px">
+              <button id="btn-export-log" class="btn-outline btn-sm">Exportar .txt</button>
+              <button id="btn-clear-log"  class="btn-outline btn-sm">Limpar</button>
+            </div>
+          </div>
+          <div class="log-list" id="log-list"></div>
+        </div>
+
+      </div>
+      <!-- /tabs-container -->
+
+    </div>
+    <!-- /content -->
+
+  </main>
+
+  <footer>
+    <span id="status-msg"></span>
+  </footer>
+
+</div>
+<script src="app.js"></script>
+</body>
+</html>

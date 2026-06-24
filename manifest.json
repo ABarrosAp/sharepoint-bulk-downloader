@@ -1,0 +1,43 @@
+{
+  "manifest_version": 3,
+  "name": "SharePoint Bulk Downloader",
+  "version": "2.0.0",
+  "description": "Baixa arquivos do SharePoint um por vez, diretamente em uma pasta, sem dialogs.",
+  "permissions": [
+    "tabs",
+    "storage",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://*.sharepoint.com/*"
+  ],
+  "action": {
+    "default_title": "Abrir SharePoint Downloader",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://*.sharepoint.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "sharepoint-downloader@kartado.com.br",
+      "strict_min_version": "111.0"
+    }
+  }
+}

@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <title>Gerar Icones da Extensao</title>
+  <style>
+    body { font-family: sans-serif; padding: 24px; background: #f3f2f1; }
+    h2 { color: #0078d4; margin-bottom: 12px; }
+    p { margin-bottom: 8px; }
+    .previews { display: flex; gap: 20px; align-items: flex-end; margin: 20px 0; }
+    .preview-item { text-align: center; font-size: 12px; color: #666; }
+    button { padding: 10px 20px; background: #0078d4; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
+    button:hover { background: #005a9e; }
+    .success { color: #107c10; font-weight: bold; margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <h2>Gerador de Icones - SharePoint Bulk Downloader</h2>
+  <p>Clique no botao abaixo para gerar e baixar os 3 arquivos de icone (16, 48 e 128px).</p>
+  <p>Mova os arquivos baixados para a pasta <code>icons/</code> da extensao.</p>
+
+  <div class="previews" id="previews"></div>
+
+  <button onclick="generateAll()">Gerar e Baixar Icones</button>
+
+  <p class="success hidden" id="done-msg">
+    3 arquivos gerados! Mova icon16.png, icon48.png e icon128.png para a pasta icons/ da extensao.
+  </p>
+
+  <script>
+    function drawIcon(canvas) {
+      const size = canvas.width;
+      const ctx = canvas.getContext('2d');
+
+      // Fundo azul (cor do SharePoint)
+      ctx.fillStyle = '#0078d4';
+      ctx.beginPath();
+      const r = Math.max(2, size / 8);
+      ctx.roundRect(0, 0, size, size, r);
+      ctx.fill();
+
+      // Seta de download em branco
+      ctx.fillStyle = 'white';
+      ctx.strokeStyle = 'white';
+      ctx.lineWidth = Math.max(1, size / 16);
+      ctx.lineCap = 'round';
+
+      const cx = size / 2;
+      const cy = size / 2;
+      const arrowW = size * 0.35;
+      const arrowH = size * 0.25;
+      const shaftH = size * 0.28;
+      const top = cy - shaftH;
+
+      // Haste vertical
+      ctx.beginPath();
+      ctx.moveTo(cx, top);
+      ctx.lineTo(cx, cy);
+      ctx.stroke();
+
+      // Ponta da seta
+      ctx.beginPath();
+      ctx.moveTo(cx - arrowW / 2, cy - arrowH / 2);
+      ctx.lineTo(cx, cy + arrowH / 2);
+      ctx.lineTo(cx + arrowW / 2, cy - arrowH / 2);
+      ctx.closePath();
+      ctx.fill();
+
+      // Linha base (plataforma)
+      const baseY = cy + arrowH * 0.8;
+      const baseX = cx - arrowW * 0.7;
+      ctx.lineWidth = Math.max(1.5, size / 12);
+      ctx.beginPath();
+      ctx.moveTo(baseX, baseY);
+      ctx.lineTo(cx + arrowW * 0.7, baseY);
+      ctx.stroke();
+    }
+
+    function generateAll() {
+      const sizes = [16, 48, 128];
+      const previews = document.getElementById('previews');
+      previews.innerHTML = '';
+
+      sizes.forEach(size => {
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        canvas.style.imageRendering = 'pixelated';
+        drawIcon(canvas);
+
+        // Preview visual
+        const display = document.createElement('canvas');
+        const previewSize = Math.max(size, 64);
+        display.width = previewSize;
+        display.height = previewSize;
+        const dctx = display.getContext('2d');
+        dctx.imageSmoothingEnabled = false;
+        dctx.drawImage(canvas, 0, 0, previewSize, previewSize);
+
+        const wrapper = document.createElement('div');
+        wrapper.className = 'preview-item';
+        wrapper.appendChild(display);
+        wrapper.appendChild(document.createElement('br'));
+        wrapper.appendChild(document.createTextNode(`${size}x${size}`));
+        previews.appendChild(wrapper);
+
+        // Download
+        const link = document.createElement('a');
+        link.download = `icon${size}.png`;
+        link.href = canvas.toDataURL('image/png');
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      });
+
+      document.getElementById('done-msg').classList.remove('hidden');
+    }
+  </script>
+</body>
+</html>
