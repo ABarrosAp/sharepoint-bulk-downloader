@@ -101,11 +101,14 @@ Files stream directly to your chosen folder. Keep the tab open while downloads r
 The extension uses the SharePoint REST API with your existing browser session (no separate authentication needed):
 
 ```
-GET /_api/web/GetFolderByServerRelativeUrl('{path}')/Files
-GET /_api/web/GetFolderByServerRelativeUrl('{path}')/Folders
+GET  /_api/web/lists?$expand=RootFolder                          # finds the library that contains the folder
+POST /_api/contextinfo                                            # form digest for the POST below (cached, auto-renewed)
+POST /_api/web/lists(guid'{id}')/RenderListDataAsStream           # files + subfolders of one folder, paged
 ```
 
-Results are paginated automatically for large folders.
+`RenderListDataAsStream` is the same endpoint the SharePoint UI uses to open a folder. Each request is ordered by `ID` (an indexed column) and returns at most 4,000 rows, following `NextHref` until the last page. This keeps every query under SharePoint Online's **List View Threshold (5,000 items)**, so folders with tens of thousands of files list correctly.
+
+Subfolders are walked recursively, one folder at a time. A subfolder that fails to list is logged and skipped; a failure on the selected (root) folder stops the scan and is shown on screen.
 
 ### File download
 
@@ -134,6 +137,10 @@ The extension could not read the current folder path from the URL. Use the **Cam
 - Make sure you are authenticated to SharePoint in the same browser session.
 - For shared folders from another tenant, navigate directly to the shared link first, then open the extension.
 - Check the **Log** tab for the exact API error.
+
+### "SPQueryThrottledException" / "excede o limite do modo de exibição de lista"
+
+Fixed in 2.0.1. Versions up to 2.0.0 listed folders with `GetFolderByServerRelativeUrl(...)/Files`, which SharePoint blocks when a folder has more than 5,000 items. Reload the extension to get the new listing method.
 
 ### Downloads stop after browser sleeps
 

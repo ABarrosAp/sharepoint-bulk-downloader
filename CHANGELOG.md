@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1] - 2026-09-28
+
+### Fixed
+- **Folders with more than 5,000 items**: listing failed with `Erro 500` / `SPQueryThrottledException` ("excede o limite do modo de exibição de lista"). Listing now uses `RenderListDataAsStream` ordered by `ID` and paged by `NextHref` (4,000 rows per page), which stays under SharePoint Online's List View Threshold.
+- Subfolder listing is no longer capped at 1,000 subfolders per folder: files and subfolders now come from the same paged request.
+
+### Changed
+- `content.js`: `buildFolderApiUrl` and `fetchAllPages` replaced by `spFetchJson`, `createDigestProvider`, `findLibraryForFolder` and `listFolderChildren`.
+
 ## [2.0.0] - 2025-06-24
 
 ### Changed
