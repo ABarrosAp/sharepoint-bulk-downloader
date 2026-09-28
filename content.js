@@ -109,59 +109,140 @@ function getSharePointInfo() {
 }
 
 /**
- * Constrói a URL base da REST API para uma pasta.
- * Usa siteUrl (não apenas origin) — crítico para sites /sites/NomeSite.
+ * Listagem via RenderListDataAsStream.
+ *
+ * Por que não GetFolderByServerRelativeUrl(...)/Files: essa consulta é bloqueada
+ * pelo limite do modo de exibição de lista (5.000 itens, SPQueryThrottledException)
+ * quando a pasta passa desse tamanho. RenderListDataAsStream é o mecanismo usado pela
+ * própria interface do SharePoint: ordena pelo ID (indexado) e pagina via NextHref,
+ * o que mantém cada consulta abaixo do limite.
  */
-function buildFolderApiUrl(siteUrl, serverPath) {
-  const oDataPath = serverPath.replace(/'/g, "''"); // Escapa aspas simples para OData
-  const encodedPath = oDataPath.split('/').map(encodeURIComponent).join('/');
-  return `${siteUrl}/_api/web/GetFolderByServerRelativeUrl('${encodedPath}')`;
+
+// Tamanho de página. Precisa ficar abaixo do limite de 5.000 itens.
+const LIST_PAGE_SIZE = 4000;
+
+// Pastas de sistema da biblioteca que nunca devem ser baixadas.
+const SYSTEM_FOLDERS = new Set(['Forms', '_catalogs', '_cts']);
+
+// Margem de segurança antes de renovar o form digest (ms).
+const DIGEST_SAFETY_MARGIN_MS = 60 * 1000;
+
+const LIST_VIEW_XML =
+  '<View>' +
+    '<Query><OrderBy><FieldRef Name="ID" Ascending="TRUE"/></OrderBy></Query>' +
+    '<ViewFields>' +
+      '<FieldRef Name="FileLeafRef"/>' +
+      '<FieldRef Name="FileRef"/>' +
+      '<FieldRef Name="FSObjType"/>' +
+      '<FieldRef Name="File_x0020_Size"/>' +
+    '</ViewFields>' +
+    `<RowLimit Paged="TRUE">${LIST_PAGE_SIZE}</RowLimit>` +
+  '</View>';
+
+/**
+ * fetch() com a sessão do navegador e tratamento de erro padronizado.
+ * Retorna o JSON da resposta.
+ */
+async function spFetchJson(url, options = {}) {
+  const response = await fetch(url, {
+    credentials: 'include',
+    ...options,
+    headers: { 'Accept': 'application/json;odata=nometadata', ...(options.headers || {}) }
+  });
+
+  if (response.status === 403 || response.status === 401) {
+    throw new Error(
+      `Acesso negado (${response.status}). Verifique se você tem permissão para acessar esta pasta. ` +
+      `URL da API: ${url}`
+    );
+  }
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(
+      `Erro ${response.status} na API SharePoint.\n` +
+      `URL: ${url}\n` +
+      `Resposta: ${text.substring(0, 300)}`
+    );
+  }
+
+  return response.json();
 }
 
 /**
- * Busca todas as páginas de uma URL paginada da SharePoint REST API.
+ * Cria um provedor de form digest (exigido em POST na REST API) com cache,
+ * renovado automaticamente antes de expirar. Varreduras longas passam de 30 min.
  */
-async function fetchAllPages(apiUrl) {
-  const results = [];
-  let nextUrl = apiUrl;
+function createDigestProvider(siteUrl) {
+  let value = null;
+  let expiresAt = 0;
 
-  while (nextUrl) {
-    const response = await fetch(nextUrl, {
-      headers: { 'Accept': 'application/json;odata=verbose' },
-      credentials: 'include'
-    });
+  return async function getDigest() {
+    if (value && Date.now() < expiresAt) return value;
+    const data = await spFetchJson(`${siteUrl}/_api/contextinfo`, { method: 'POST' });
+    value = data.FormDigestValue;
+    expiresAt = Date.now() + data.FormDigestTimeoutSeconds * 1000 - DIGEST_SAFETY_MARGIN_MS;
+    return value;
+  };
+}
 
-    if (response.status === 403 || response.status === 401) {
-      throw new Error(
-        `Acesso negado (${response.status}). Verifique se você tem permissão para acessar esta pasta. ` +
-        `URL da API: ${nextUrl}`
-      );
-    }
+const normalizePath = p => decodeURIComponent(p).replace(/\/+$/, '').toLowerCase();
 
-    if (!response.ok) {
-      const text = await response.text().catch(() => '');
-      throw new Error(
-        `Erro ${response.status} na API SharePoint.\n` +
-        `URL: ${nextUrl}\n` +
-        `Resposta: ${text.substring(0, 300)}`
-      );
-    }
+/**
+ * Descobre a biblioteca que contém a pasta: a lista cuja RootFolder é o
+ * prefixo mais longo do caminho. Consulta a coleção de listas, não os itens,
+ * então não sofre com o limite de 5.000.
+ */
+async function findLibraryForFolder(siteUrl, folderServerPath) {
+  const data = await spFetchJson(
+    `${siteUrl}/_api/web/lists?$select=Id,Title,RootFolder/ServerRelativeUrl&$expand=RootFolder&$top=5000`
+  );
+  const target = normalizePath(folderServerPath);
 
-    const data = await response.json();
+  const library = data.value
+    .map(list => ({ id: list.Id, title: list.Title, root: normalizePath(list.RootFolder.ServerRelativeUrl) }))
+    .filter(list => target === list.root || target.startsWith(list.root + '/'))
+    .sort((a, b) => b.root.length - a.root.length)[0];
 
-    if (!data.d || !Array.isArray(data.d.results)) {
-      throw new Error(
-        `Formato de resposta inesperado da API SharePoint.\n` +
-        `URL: ${nextUrl}\n` +
-        `Resposta: ${JSON.stringify(data).substring(0, 200)}`
-      );
-    }
-
-    results.push(...data.d.results);
-    nextUrl = data.d.__next || null;
+  if (!library) {
+    throw new Error(
+      `Nenhuma biblioteca do site contém a pasta informada.\n` +
+      `Site: ${siteUrl}\n` +
+      `Pasta: ${folderServerPath}`
+    );
   }
+  return library;
+}
 
-  return results;
+/**
+ * Lista os filhos diretos (arquivos e subpastas) de uma pasta, página por página.
+ */
+async function listFolderChildren(siteUrl, listId, folderServerPath, getDigest) {
+  const endpoint = `${siteUrl}/_api/web/lists(guid'${listId}')/RenderListDataAsStream`;
+  const body = JSON.stringify({
+    parameters: {
+      RenderOptions: 2, // ListData: só as linhas, sem esquema/HTML
+      FolderServerRelativeUrl: folderServerPath,
+      ViewXml: LIST_VIEW_XML
+    }
+  });
+
+  const rows = [];
+  let query = '';
+  do {
+    const data = await spFetchJson(endpoint + query, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json;odata=nometadata',
+        'X-RequestDigest': await getDigest()
+      },
+      body
+    });
+    rows.push(...(data.Row || []));
+    query = data.NextHref || ''; // "?Paged=TRUE&p_ID=...", vazio na última página
+  } while (query);
+
+  return rows;
 }
 
 function sanitizePathSegment(name) {
@@ -174,32 +255,36 @@ function sanitizePathSegment(name) {
  */
 async function listFilesRecursive(siteUrl, origin, folderServerPath, localBasePath, includeSubfolders, progressCallback) {
   const files = [];
+  const getDigest = createDigestProvider(siteUrl);
+  const library = await findLibraryForFolder(siteUrl, folderServerPath);
 
   async function processFolder(serverPath, localPath) {
-    const folderApiBase = buildFolderApiUrl(siteUrl, serverPath);
-
-    // Lista arquivos nesta pasta
-    const filesUrl = `${folderApiBase}/Files?$select=Name,ServerRelativeUrl,Length&$top=5000`;
-
-    let fileItems = [];
+    let rows = [];
     try {
-      fileItems = await fetchAllPages(filesUrl);
+      rows = await listFolderChildren(siteUrl, library.id, serverPath, getDigest);
     } catch (err) {
-      console.error(`[SharePoint Downloader] Falha ao listar arquivos em "${serverPath}":`, err);
+      console.error(`[SharePoint Downloader] Falha ao listar "${serverPath}":`, err);
       if (progressCallback) progressCallback({ type: 'error', message: err.message });
-      // Propaga o erro para o primeiro nível (pasta raiz) para que o popup mostre
+      // Propaga o erro para o primeiro nível (pasta raiz) para que o app mostre
       if (serverPath === folderServerPath) throw err;
       return; // Subpastas com erro: pula e continua
     }
 
-    for (const file of fileItems) {
-      const safeName = sanitizePathSegment(file.Name);
-      const filePath = localPath ? `${localPath}/${safeName}` : safeName;
+    const subfolders = [];
+    for (const row of rows) {
+      const safeName = sanitizePathSegment(row.FileLeafRef);
+      const itemLocalPath = localPath ? `${localPath}/${safeName}` : safeName;
+
+      if (String(row.FSObjType) === '1') {
+        if (!SYSTEM_FOLDERS.has(row.FileLeafRef)) subfolders.push({ serverPath: row.FileRef, localPath: itemLocalPath });
+        continue;
+      }
+
       files.push({
-        name: file.Name,
-        url: `${origin}${file.ServerRelativeUrl}`,
-        localPath: filePath,
-        size: parseInt(file.Length, 10) || 0
+        name: row.FileLeafRef,
+        url: `${origin}${row.FileRef}`,
+        localPath: itemLocalPath,
+        size: parseInt(row.File_x0020_Size, 10) || 0
       });
     }
 
@@ -207,21 +292,8 @@ async function listFilesRecursive(siteUrl, origin, folderServerPath, localBasePa
 
     if (!includeSubfolders) return;
 
-    // Lista subpastas
-    const foldersUrl = `${folderApiBase}/Folders?$select=Name,ServerRelativeUrl&$top=1000`;
-    let folderItems = [];
-    try {
-      folderItems = await fetchAllPages(foldersUrl);
-    } catch (err) {
-      console.error(`[SharePoint Downloader] Falha ao listar subpastas em "${serverPath}":`, err);
-      return;
-    }
-
-    for (const folder of folderItems) {
-      if (folder.Name === 'Forms' || folder.Name === '_catalogs' || folder.Name === '_cts') continue;
-      const safeFolderName = sanitizePathSegment(folder.Name);
-      const subLocalPath = localPath ? `${localPath}/${safeFolderName}` : safeFolderName;
-      await processFolder(folder.ServerRelativeUrl, subLocalPath);
+    for (const folder of subfolders) {
+      await processFolder(folder.serverPath, folder.localPath);
     }
   }
 
