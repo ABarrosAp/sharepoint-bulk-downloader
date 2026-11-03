@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **"Escolher pasta..." no Brave**: o clique mostrava `window.showDirectoryPicker is not a function`, porque o Brave desliga a File System Access API por padrão. Agora a tela explica como ativar (`brave://flags/#file-system-access-api`) ou indica usar Chrome/Edge.
+
+### Changed
+- README: o Firefox foi removido dos navegadores suportados (não tem `showDirectoryPicker`) e o Brave foi incluído com a observação do flag.
+
 ## [2.0.1] - 2026-09-28
 
 ### Fixed
