@@ -26,9 +26,10 @@ Built to solve the problem of downloading large SharePoint folders (96 GB+, 600+
 | Browser | Minimum version |
 |---------|----------------|
 | Chrome / Edge | 86+ |
-| Firefox | 111+ |
+| Brave | only with `brave://flags/#file-system-access-api` set to **Enabled** (off by default) |
+| Firefox | not supported |
 
-> The File System Access API (`showDirectoryPicker`) is required. It is available in the versions listed above.
+> The File System Access API (`showDirectoryPicker`) is required. Without it, **Escolher pasta...** fails with `window.showDirectoryPicker is not a function`.
 
 ---
 
