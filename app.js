@@ -279,6 +279,12 @@ async function applyManualPath() {
 // ============================================================
 
 async function pickDirectory() {
+  // Brave desliga a File System Access API por padrão; Firefox não tem.
+  if (typeof window.showDirectoryPicker !== 'function') {
+    setStatus('Este navegador bloqueia a escolha de pasta. No Brave: abra brave://flags/#file-system-access-api, ' +
+      'coloque em Enabled e reinicie o navegador. No Firefox não funciona: use Chrome ou Edge.', 'error');
+    return;
+  }
   try {
     const handle = await window.showDirectoryPicker({ mode: 'readwrite', startIn: 'downloads' });
     dirHandle = handle;
